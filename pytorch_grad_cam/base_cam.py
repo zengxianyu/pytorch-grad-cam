@@ -15,8 +15,10 @@ class BaseCAM:
                  use_cuda: bool = False,
                  reshape_transform: Callable = None,
                  compute_input_gradient: bool = False,
-                 uses_gradients: bool = True) -> None:
+                 uses_gradients: bool = True,
+                 scale_image: bool = True) -> None:
         self.model = model.eval()
+        self.scale_image = scale_image
         self.target_layers = target_layers
         self.cuda = use_cuda
         if self.cuda:
@@ -78,7 +80,9 @@ class BaseCAM:
 
         if self.uses_gradients:
             self.model.zero_grad()
-            loss = sum([target(output) for target, output in zip(targets, outputs)])
+            loss = sum([target(outputs) for target in targets])
+            #loss = sum([target(output) for target, output in zip(targets, outputs)])
+            #loss = targets[0](outputs)
             loss.backward(retain_graph=True)
 
         # In most of the saliency attribution papers, the saliency is
@@ -128,8 +132,12 @@ class BaseCAM:
                                      layer_activations,
                                      layer_grads,
                                      eigen_smooth)
+            cam = cam.astype(np.float32)
             cam = np.maximum(cam, 0)
-            scaled = scale_cam_image(cam, target_size)
+            if self.scale_image:
+                scaled = scale_cam_image(cam, target_size)
+            else:
+                scaled = cam
             cam_per_target_layer.append(scaled[:, None, :])
 
         return cam_per_target_layer
@@ -138,7 +146,9 @@ class BaseCAM:
         cam_per_target_layer = np.concatenate(cam_per_target_layer, axis=1)
         cam_per_target_layer = np.maximum(cam_per_target_layer, 0)
         result = np.mean(cam_per_target_layer, axis=1)
-        return scale_cam_image(result)
+        if self.scale_image:
+            result = scale_cam_image(result)
+        return result
 
     def forward_augmentation_smoothing(self,
                                        input_tensor: torch.Tensor,
